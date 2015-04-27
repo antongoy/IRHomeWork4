@@ -8,7 +8,7 @@
 
 ./build_dictionary.py 
 
-## Searcher: ##
+## Searcher (start with random population and generate generations) ##
 
 ./searcher.py {varbyte, simple9} {path_to_urls.txt}
 

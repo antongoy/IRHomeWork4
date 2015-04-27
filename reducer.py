@@ -4,7 +4,6 @@ from __future__ import print_function
 from __future__ import division
 
 import sys
-import math
 
 from compress import *
 from base64 import b64encode

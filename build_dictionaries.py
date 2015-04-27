@@ -10,7 +10,7 @@ def main():
     inverted_index_dictionary = {}
     direct_index_dictionary = {}
 
-    with open("raw_inverted_index", 'r') as raw_inverted_index_file, \
+    with open("raw_inverted_index_all", 'r') as raw_inverted_index_file, \
             open("inverted_index", 'wb') as inverted_index_file, \
             open("coord_index", 'wb') as coord_index_file:
 
@@ -28,17 +28,17 @@ def main():
             print(output1, end='', file=inverted_index_file)
             print(output2, end='', file=coord_index_file)
 
-    with open("direct_index", 'r') as direct_index:
+
+    with open("direct_index_all", 'r') as direct_index:
         while True:
             line = direct_index.readline()
 
             if not line:
                 break
 
-            doc_id, doc_length, text = line.strip().split('\t')
+            doc_id, doc_length = line.strip().split('\t')
 
-            offset1 = direct_index.tell() - len(line)
-            direct_index_dictionary[int(doc_id)] = (offset1, len(line), int(doc_length))
+            direct_index_dictionary[int(doc_id)] = int(doc_length)
 
     with open('inverted_index_dictionary', 'wb') as inverted_dictionary_file:
         pickle.dump(inverted_index_dictionary, inverted_dictionary_file, 2)

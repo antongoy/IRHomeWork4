@@ -21,25 +21,7 @@ from stop_words import stop_words
 __author__ = 'anton-goy'
 
 
-class HeapNode():
-    def __init__(self, x, y):
-        self.docid = x
-        self.rank = y
-
-    def __cmp__(self, other):
-        return cmp(self.rank, other.rank)
-
-    def __str__(self):
-        return '({0}, {1})'.format(self.docid, self.rank)
-
-    def __repr__(self):
-        return '({0}, {1})'.format(self.docid, self.rank)
-
-
 def parse_arguments():
-    """
-    :rtype : tuple
-    """
     compression_method = sys.argv[1]
 
     if compression_method == 'varbyte':
@@ -61,8 +43,7 @@ def read_inverted_index(offset, length):
     posting_list = from_gaps(uncompress_method(b64decode(encode_posting_list)))
     tfs = uncompress_method(b64decode(encode_tfs))
 
-    return [int(doc_id) for doc_id in posting_list], \
-           [int(tf) for tf in tfs],
+    return map(int, posting_list), map(int, tfs)
 
 
 def read_direct_index(offset, length):
@@ -130,19 +111,19 @@ def posting_list_intersection(terms, terms_posting_lists):
 
 
 def initial_ranking(found_docs, found_docs_indexes, terms, terms_tfs, terms_idfs):
-    k = 1.8
-    b = 0.5
+    k = 2
+    b = 0.75
 
     doc_ranks = {}
 
-    for k, doc_id in enumerate(found_docs):
+    for doc_id in found_docs:
         bm25 = 0.0
         for term_index, term in enumerate(terms):
             doc_index = found_docs_indexes[(term, doc_id)]
 
             tf = terms_tfs[term_index][doc_index]
             idf = terms_idfs[term_index]
-            bm25 += (tf * idf) / (tf + k * (b + direct_dictionary[doc_id][2] * (1 - b)))
+            bm25 += (tf * idf) / (tf + k * (b + direct_dictionary[doc_id] * (1 - b)))
 
         doc_ranks[doc_id] = bm25
 
@@ -166,23 +147,11 @@ def compute_tfs_in_passage(terms, tfs):
     return [tfs[term] if term in tfs else 0 for term in terms]
 
 
-def compute_terms_in_passage(start_index, end_index, terms_in_document):
-    for i, (pos, word) in enumerate(terms_in_document):
-        if pos < start_index:
-            continue
-
-        if pos == start_index:
-            k = i
-
-        if pos == end_index:
-            l = i
-            break
-
-        if start_index <= pos <= end_index:
-            continue
-
+def get_terms_in_passage(start_index, end_index, terms_in_document):
+    terms_in_passage_list = [(pos, word) for pos, word in terms_in_document
+                             if start_index <= pos <= end_index]
     tfs = {}
-    for _, term in terms_in_document[k:l + 1]:
+    for _, term in terms_in_passage_list:
         if term in tfs:
             tfs[term] += 1
         else:
@@ -192,29 +161,25 @@ def compute_terms_in_passage(start_index, end_index, terms_in_document):
 
 
 def compute_passage_features(passage, start_index, end_index, terms_in_document, terms, terms_idfs):
-    n_terms = len(terms)
-
-    terms_in_passage = compute_terms_in_passage(start_index, end_index, terms_in_document)
+    terms_in_passage = get_terms_in_passage(start_index, end_index, terms_in_document)
 
     n_distinct_terms_in_passage = compute_distinct_terms_in_passage(terms, terms_in_passage)
-    assert n_distinct_terms_in_passage <= n_terms
-
-    passage_text_length = end_index - start_index + 1
-
+    n_terms = len(terms)
     completeness = n_distinct_terms_in_passage / n_terms
+
     tfs = compute_tfs_in_passage(terms, terms_in_passage)
-
-    n_terms_in_passage = sum(tfs)
-    density = passage_text_length - n_terms_in_passage
-
     tf_idf = sum([tfs[i] * terms_idfs[i] for i in range(n_terms)])
 
-    n_inverse = len(passage) - compute_inverses(passage)
+    n_terms_in_passage = sum(tfs)
+    passage_text_length = end_index - start_index + 1
+    density = 1 / (passage_text_length - n_terms_in_passage + 1)
 
-    return [completeness, density, tf_idf, n_inverse, ]
+    n_inverse = 1 / (compute_inverses(passage) + 1)
+
+    return [completeness, density, tf_idf, n_inverse]
 
 
-def passage_ranking(heap, found_docs_indexes, terms, terms_idfs, terms_positions, parameters):
+def passage_ranking(heap, terms, terms_idfs, terms_positions, parameters):
     global direct_dictionary
 
     def window(seq, n=2):
@@ -229,45 +194,31 @@ def passage_ranking(heap, found_docs_indexes, terms, terms_idfs, terms_positions
     n_terms = len(terms)
     passage_ranks = []
 
-    for heap_node in heap:
-        doc_id = heap_node.docid
-
+    for doc_id, _ in heap:
         current_passage = [-1] * n_terms
-        current_passage_rank = None
-
         best_passage_rank = -1
 
         terms_in_document = [(pos, term) for term in terms for pos in terms_positions[(term, doc_id)]]
         terms_in_document.sort(key=lambda x: x[0])
 
-        for slide_window in window(terms_in_document, n_terms):
-            is_window_useful = False
+        for sliding_window in window(terms_in_document, n_terms):
+            is_useful = False
 
             for term_pos, term in enumerate(terms):
-                for word_pos, word in slide_window:
+                for pos_in_window, word in sliding_window:
+                    if word == term and current_passage[term_pos] != pos_in_window:
+                        current_passage[term_pos] = pos_in_window
+                        is_useful = True
+                        break
 
-                    if word == term and not current_passage[term_pos] == word_pos:
-                        current_passage[term_pos] = word_pos
-                        is_window_useful = True
-
-            if is_window_useful:
+            if is_useful:
                 end_index = max(current_passage)
+                start_index = min(current_passage, key=lambda x: x if x != -1 else end_index)
 
-                start_index = end_index
-
-                for i in current_passage:
-                    if i == -1:
-                        continue
-
-                    if i < start_index:
-                        start_index = i
-
-                passage_features = compute_passage_features(current_passage,
-                                                            start_index,
-                                                            end_index,
-                                                            terms_in_document,
-                                                            terms,
-                                                            terms_idfs)
+                passage_features = \
+                    compute_passage_features(current_passage, start_index, end_index, terms_in_document,
+                                             terms,
+                                             terms_idfs)
 
                 current_passage_rank = sum([p * f for p, f in zip(parameters, passage_features)])
 
@@ -292,8 +243,7 @@ def get_terms_positions(terms, heap, found_docs_indexes):
     memo = {}
 
     for term in terms:
-        for heap_node in heap:
-            doc_id = heap_node.docid
+        for doc_id, _ in heap:
             if not term in memo:
                 _, _, offset, length = inverted_dictionary[term]
 
@@ -329,15 +279,15 @@ def compute_quality(parameters, data):
 
         initial_ranks = initial_ranking(found_docs, found_docs_indexes, terms, terms_tfs, terms_idfs)
 
-        heap = [HeapNode(doc_id, -initial_ranks[doc_id]) for doc_id in found_docs]
-        heap = heapq.nlargest(heap_max_size, heap)
+        heap = [(doc_id, initial_ranks[doc_id]) for doc_id in found_docs]
+        heap = heapq.nlargest(heap_max_size, heap, key=lambda x: x[1])
 
         terms_positions = get_terms_positions(terms, heap, found_docs_indexes)
 
-        passage_ranks = passage_ranking(heap, found_docs_indexes, terms, terms_idfs, terms_positions, parameters)
+        passage_ranks = passage_ranking(heap, terms, terms_idfs, terms_positions, parameters)
 
-        output_ranking = [(heap_node.docid, url_dictionary[heap_node.docid], rank)
-                          for heap_node, rank in zip(heap, passage_ranks)]
+        output_ranking = [(doc_id, url_dictionary[doc_id], rank)
+                          for (doc_id, _), rank in zip(heap, passage_ranks)]
 
         output_ranking.sort(key=lambda x: x[2])
 
@@ -350,7 +300,7 @@ def compute_quality(parameters, data):
                 n_successes += 1
                 break
 
-    return avg_pos / n_successes
+    return avg_pos / n_successes, n_successes
 
 
 def url_normalization(url):
@@ -378,7 +328,7 @@ def generate_trial_vector(i, population, F):
     while m == i or m == n or m == k:
         m = random.randint(0, population_size - 1)
 
-    new_vector = [population[n][t] + F *(population[k][t] - population[m][t]) for t in range(4)]
+    new_vector = [population[n][t] + F * (population[k][t] - population[m][t]) for t in range(4)]
 
     for coord in range(len(new_vector)):
         if random.randint(0, 4) >= 3:
@@ -399,35 +349,35 @@ def main():
         for line in marks_file:
             data.append(line.strip().split('\t'))
 
-    population = [[random.randint(0, 100) for i in range(4)] for i in range(population_size)]
-
-    qualities = [compute_quality(population[i], data) for i in range(population_size)]
-
-    n_generations = 20
-
-    for t in range(n_generations):
-        print("Generation #%d" % t)
-        new_population = []
-
-        for i in range(population_size):
-            trial_vector = generate_trial_vector(i, population, F)
-            trial_vector_quality = compute_quality(trial_vector, data)
-
-            if trial_vector_quality < qualities[i]:
-                qualities[i] = trial_vector_quality
-
-            new_population.append(trial_vector)
-
-        print(qualities)
-
-    print(new_population)
-    print(qualities)
+    print(compute_quality([2, 1, 3, 1], data[:30]))
+    # population = [[random.randint(0, 100) for i in range(4)] for i in range(population_size)]
+    # qualities = [compute_quality(population[i], data) for i in range(population_size)]
+    #
+    # n_generations = 20
+    #
+    # for t in range(n_generations):
+    #     print("Generation #%d" % t)
+    #     new_population = []
+    #
+    #     for i in range(population_size):
+    #         trial_vector = generate_trial_vector(i, population, F)
+    #         trial_vector_quality = compute_quality(trial_vector, data)
+    #
+    #         if trial_vector_quality < qualities[i]:
+    #             qualities[i] = trial_vector_quality
+    #
+    #         new_population.append(trial_vector)
+    #
+    #     print(qualities)
+    #
+    # print(new_population)
+    # print(qualities)
 
 
 def building_dicts():
     global inverted_dictionary, direct_dictionary, n_documents
 
-    print('Loading the dictionary from file....')
+    print('Loading the dictionaries from file....')
     direct_dictionary = load(direct_index_dictionary_file)
     inverted_dictionary = load(inverted_index_dictionary_file)
 
