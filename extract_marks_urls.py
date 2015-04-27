@@ -19,6 +19,7 @@ def url_normalization(url):
 
 
 urls_filename = sys.argv[1]
+marks_filename = sys.argv[2]
 
 urls = set()
 
@@ -27,7 +28,7 @@ for line in open(urls_filename, 'r'):
     url = url_normalization(url)
     urls.add(url)
 
-for line in open('marks.tsv', 'r'):
+for line in open(marks_filename, 'r'):
     _, url = line.strip().split('\t')
     url = url_normalization(url)
     if url in urls:
