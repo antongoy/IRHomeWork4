@@ -204,9 +204,11 @@ def passage_ranking(heap, terms, terms_idfs, terms_positions, parameters):
         for sliding_window in window(terms_in_document, n_terms):
             is_useful = False
 
+            window_start_index = sliding_window[0][0]
+
             for term_pos, term in enumerate(terms):
                 for pos_in_window, word in sliding_window:
-                    if word == term and current_passage[term_pos] != pos_in_window:
+                    if word == term and current_passage[term_pos] < window_start_index:
                         current_passage[term_pos] = pos_in_window
                         is_useful = True
                         break
@@ -349,29 +351,29 @@ def main():
         for line in marks_file:
             data.append(line.strip().split('\t'))
 
-    print(compute_quality([2, 1, 3, 1], data[:30]))
-    # population = [[random.randint(0, 100) for i in range(4)] for i in range(population_size)]
-    # qualities = [compute_quality(population[i], data) for i in range(population_size)]
-    #
-    # n_generations = 20
-    #
-    # for t in range(n_generations):
-    #     print("Generation #%d" % t)
-    #     new_population = []
-    #
-    #     for i in range(population_size):
-    #         trial_vector = generate_trial_vector(i, population, F)
-    #         trial_vector_quality = compute_quality(trial_vector, data)
-    #
-    #         if trial_vector_quality < qualities[i]:
-    #             qualities[i] = trial_vector_quality
-    #
-    #         new_population.append(trial_vector)
-    #
-    #     print(qualities)
-    #
-    # print(new_population)
-    # print(qualities)
+    #print(compute_quality([1, 1, 20, 2], data[:50]))
+    population = [[random.randint(0, 100) for i in range(4)] for i in range(population_size)]
+    qualities = [compute_quality(population[i], data) for i in range(population_size)]
+
+    n_generations = 20
+
+    for t in range(n_generations):
+        print("Generation #%d" % t)
+        new_population = []
+
+        for i in range(population_size):
+            trial_vector = generate_trial_vector(i, population, F)
+            trial_vector_quality = compute_quality(trial_vector, data)
+
+            if trial_vector_quality < qualities[i]:
+                qualities[i] = trial_vector_quality
+
+            new_population.append(trial_vector)
+
+        print(qualities)
+
+    print(new_population)
+    print(qualities)
 
 
 def building_dicts():
