@@ -302,7 +302,7 @@ def compute_quality(parameters, data):
                 n_successes += 1
                 break
 
-    return avg_pos / n_successes, n_successes
+    return avg_pos / n_successes
 
 
 def url_normalization(url):
